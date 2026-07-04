@@ -1,0 +1,14 @@
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local environments and tool state
+.venv/
+.venv-ppo/
+.hf-home/
+.cache/
+.deepeval/
+
+# Generated data and experiment outputs
+runs/

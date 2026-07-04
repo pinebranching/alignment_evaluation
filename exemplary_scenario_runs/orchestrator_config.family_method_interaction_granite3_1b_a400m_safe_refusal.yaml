@@ -1,0 +1,370 @@
+# Granite 3.0 1B-A400M feasibility run for Scenario 3: family x method interaction.
+#
+# Goal:
+# - test one compact Granite model with base + SFT + DPO + KTO
+# - reuse the safe-refusal train/eval setup that already worked for Scenario 1
+# - keep settings conservative for GPU stability
+#
+# Data preparation:
+#   python -m orchestrator.cli --dataset PKU-Alignment/PKU-SafeRLHF --split train
+#   python -m orchestrator.cli --dataset PKU-Alignment/PKU-SafeRLHF --split test
+#   python -m orchestrator.cli --dataset LibrAI/do-not-answer --split train
+#   python -m orchestrator.cli --dataset nvidia/HelpSteer2 --split train
+#   python -m orchestrator.cli --dataset nvidia/HelpSteer2 --split validation
+#   python prepare_safe_refusal_scenario_data.py
+#
+# Run:
+#   python -m orchestrator.cli --config configs/github_repo/orchestrator_config.family_method_interaction_granite3_1b_a400m_safe_refusal.yaml
+
+orchestrator:
+  run_name: family-method-interaction-granite3-1b-a400m-safe-refusal
+  stop_on_error: true
+
+  execute:
+    alignment: true
+    inference: true
+    evaluation: true
+
+  output:
+    root_dir: ../../runs/orchestrator
+    overwrite: true
+    save_pipeline_state: true
+    save_generated_stage_configs: true
+
+  naming:
+    branch_id_template: "{candidate_id}/{benchmark_id}"
+    include_timestamp: true
+
+
+defaults:
+  runtime:
+    target: single_gpu
+    device: cuda
+    cpu_threads: 8
+    mixed_precision: bf16
+    cuda_visible_devices: []
+
+  alignment:
+    backend: llama_factory
+
+    runtime:
+      command_mode: module
+      python_executable: null
+      force_torchrun: false
+      nproc_per_node: 1
+      extra_env:
+        DISABLE_VERSION_CHECK: "1"
+      heartbeat_interval_seconds: 3000000
+
+    tuning:
+      finetuning_type: lora
+      lora_rank: 8
+      lora_alpha: 16
+      lora_dropout: 0.05
+      lora_target: all
+      quantization_bit: null
+
+    training:
+      cutoff_len: 128
+      per_device_train_batch_size: 1
+      gradient_accumulation_steps: 4
+      learning_rate: 5.0e-5
+      num_train_epochs: 2.0
+      lr_scheduler_type: cosine
+      warmup_ratio: 0.03
+      logging_steps: 10
+      save_steps: 100
+      save_total_limit: 1
+      dataloader_num_workers: 0
+      preprocessing_num_workers: 1
+
+    output:
+      save_adapter_checkpoint: true
+      export_merged_model: true
+      export_device: cpu
+      overwrite_output_dir: true
+      save_only_model: false
+      report_to: none
+
+  inference:
+    mode: offline
+
+    model:
+      backend: transformers_local
+      device: cuda
+      torch_dtype: bfloat16
+
+    generation:
+      max_new_tokens: 256
+      temperature: 0.0
+      top_p: 1.0
+      do_sample: false
+      repetition_penalty: 1.0
+      stop_strings: []
+      add_generation_prompt: true
+
+    execution:
+      batch_size: 1
+      max_concurrency: 1
+
+  evaluation:
+    mode: offline
+
+    execution:
+      batch_size: 1
+      max_concurrency: 1
+
+
+catalog:
+  models:
+    granite3_1b_a400m_base:
+      model_name_or_path: ibm-granite/granite-3.0-1b-a400m-instruct
+      tokenizer_name_or_path: null
+      revision: main
+      trust_remote_code: false
+      template: granite3
+
+  datasets:
+    pku_safe_refusal_sft_train:
+      stage: alignment
+      path: ../data/pku_safe_refusal_sft_train.jsonl
+      format: jsonl
+      schema: prompt_response
+      fields:
+        prompt: prompt
+        response: response
+        system: null
+      max_samples: 2000
+
+    pku_safe_refusal_dpo_train:
+      stage: alignment
+      path: ../data/pku_safe_refusal_dpo_train.jsonl
+      format: jsonl
+      schema: prompt_chosen_rejected
+      fields:
+        prompt: prompt
+        chosen: chosen
+        rejected: rejected
+        system: null
+      max_samples: 2000
+
+    pku_safe_refusal_kto_train:
+      stage: alignment
+      path: ../data/pku_safe_refusal_kto_train.jsonl
+      format: jsonl
+      schema: prompt_response_label
+      fields:
+        prompt: prompt
+        response: response
+        label: label
+        system: null
+      max_samples: 4000
+
+    do_not_answer_refusal_eval:
+      stage: inference_eval
+      path: ../benchmark_data/do_not_answer_refusal_eval.jsonl
+      format: jsonl
+      fields:
+        id: id
+        input: input
+        expected_output: expected_output
+        context: null
+        retrieval_context: null
+        metadata: metadata
+      max_samples: 300
+
+    pku_safe_benign_action_eval:
+      stage: inference_eval
+      path: ../benchmark_data/pku_safe_benign_action_eval.jsonl
+      format: jsonl
+      fields:
+        id: id
+        input: input
+        expected_output: expected_output
+        context: null
+        retrieval_context: null
+        metadata: metadata
+      max_samples: 300
+
+    helpsteer2_benign_open_eval:
+      stage: inference_eval
+      path: ../benchmark_data/helpsteer2_benign_open_eval.jsonl
+      format: jsonl
+      fields:
+        id: id
+        input: input
+        expected_output: expected_output
+        context: null
+        retrieval_context: null
+        metadata: metadata
+      max_samples: 300
+
+  judge_models:
+    qwen25_05b_judge:
+      backend: transformers_local
+      model: Qwen/Qwen2.5-0.5B-Instruct
+      device: cuda
+      torch_dtype: bfloat16
+      temperature: 0
+      generation_kwargs:
+        max_new_tokens: 384
+
+  training_profiles:
+    pku_safe_refusal_sft:
+      training:
+        learning_rate: 5.0e-5
+        num_train_epochs: 2.0
+
+    pku_safe_refusal_dpo:
+      training:
+        learning_rate: 1.0e-5
+        num_train_epochs: 2.0
+
+    pku_safe_refusal_kto:
+      training:
+        learning_rate: 1.0e-5
+        num_train_epochs: 2.0
+
+  metric_sets:
+    exact_only:
+      metrics:
+        - name: exact_match
+          include_reason: true
+          strict_mode: false
+          verbose_mode: false
+
+    benign_relevancy_qwen_judge:
+      judge_model_ref: qwen25_05b_judge
+      metrics:
+        - name: answer_relevancy
+          threshold: 0.5
+          include_reason: true
+          strict_mode: false
+          verbose_mode: false
+
+
+alignment:
+  candidates:
+    - candidate_id: granite3_1b_a400m_base
+      kind: base
+      model_ref: granite3_1b_a400m_base
+
+    - candidate_id: granite3_1b_a400m_sft_safe_refusal
+      kind: aligned
+      base_model_ref: granite3_1b_a400m_base
+      method: sft
+      dataset_ref: pku_safe_refusal_sft_train
+      profile_ref: pku_safe_refusal_sft
+
+    - candidate_id: granite3_1b_a400m_dpo_safe_refusal
+      kind: aligned
+      base_model_ref: granite3_1b_a400m_base
+      method: dpo
+      dataset_ref: pku_safe_refusal_dpo_train
+      profile_ref: pku_safe_refusal_dpo
+      method_config:
+        dpo:
+          pref_beta: 0.1
+          pref_loss: sigmoid
+
+    - candidate_id: granite3_1b_a400m_kto_safe_refusal
+      kind: aligned
+      base_model_ref: granite3_1b_a400m_base
+      method: kto
+      dataset_ref: pku_safe_refusal_kto_train
+      profile_ref: pku_safe_refusal_kto
+      method_config:
+        kto:
+          pref_beta: 0.1
+          kto_chosen_weight: 1.0
+          kto_rejected_weight: 1.0
+
+
+inference:
+  benchmarks:
+    - benchmark_id: harmful_refusal_action_main
+      dataset_ref: do_not_answer_refusal_eval
+      candidate_refs:
+        - granite3_1b_a400m_base
+        - granite3_1b_a400m_sft_safe_refusal
+        - granite3_1b_a400m_dpo_safe_refusal
+        - granite3_1b_a400m_kto_safe_refusal
+      generation:
+        max_new_tokens: 8
+        temperature: 0.0
+        top_p: 1.0
+        do_sample: false
+        repetition_penalty: 1.0
+      execution: {}
+
+    - benchmark_id: benign_action_main
+      dataset_ref: pku_safe_benign_action_eval
+      candidate_refs:
+        - granite3_1b_a400m_base
+        - granite3_1b_a400m_sft_safe_refusal
+        - granite3_1b_a400m_dpo_safe_refusal
+        - granite3_1b_a400m_kto_safe_refusal
+      generation:
+        max_new_tokens: 8
+        temperature: 0.0
+        top_p: 1.0
+        do_sample: false
+        repetition_penalty: 1.0
+      execution: {}
+
+    - benchmark_id: benign_helpfulness_main
+      dataset_ref: helpsteer2_benign_open_eval
+      candidate_refs:
+        - granite3_1b_a400m_base
+        - granite3_1b_a400m_sft_safe_refusal
+        - granite3_1b_a400m_dpo_safe_refusal
+        - granite3_1b_a400m_kto_safe_refusal
+      generation:
+        max_new_tokens: 256
+        temperature: 0.0
+        top_p: 1.0
+        do_sample: false
+        repetition_penalty: 1.0
+      execution: {}
+
+
+evaluation:
+  benchmarks:
+    - benchmark_id: harmful_refusal_action_eval
+      dataset_ref: do_not_answer_refusal_eval
+      metric_set_ref: exact_only
+      source_inference_benchmark: harmful_refusal_action_main
+      candidate_refs:
+        - granite3_1b_a400m_base
+        - granite3_1b_a400m_sft_safe_refusal
+        - granite3_1b_a400m_dpo_safe_refusal
+        - granite3_1b_a400m_kto_safe_refusal
+      judge_model_ref: null
+      judge_model: {}
+      execution: {}
+
+    - benchmark_id: benign_action_eval
+      dataset_ref: pku_safe_benign_action_eval
+      metric_set_ref: exact_only
+      source_inference_benchmark: benign_action_main
+      candidate_refs:
+        - granite3_1b_a400m_base
+        - granite3_1b_a400m_sft_safe_refusal
+        - granite3_1b_a400m_dpo_safe_refusal
+        - granite3_1b_a400m_kto_safe_refusal
+      judge_model_ref: null
+      judge_model: {}
+      execution: {}
+
+    - benchmark_id: benign_helpfulness_eval
+      dataset_ref: helpsteer2_benign_open_eval
+      metric_set_ref: benign_relevancy_qwen_judge
+      source_inference_benchmark: benign_helpfulness_main
+      candidate_refs:
+        - granite3_1b_a400m_base
+        - granite3_1b_a400m_sft_safe_refusal
+        - granite3_1b_a400m_dpo_safe_refusal
+        - granite3_1b_a400m_kto_safe_refusal
+      judge_model_ref: null
+      judge_model: {}
+      execution: {}

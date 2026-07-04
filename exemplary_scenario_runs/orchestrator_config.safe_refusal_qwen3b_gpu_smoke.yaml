@@ -1,0 +1,267 @@
+# Qwen 3B GPU smoke test for the safe-refusal scenario.
+#
+# Purpose:
+# - validate Goldbaer GPU environment, PATH/torchrun wiring, and alignment logging
+# - keep runtime short and memory usage bounded
+# - exercise base, SFT, DPO, and KTO on one small benchmark only
+#
+# Run from an activated environment, for example on Goldbaer:
+#   source ~/.bashrc
+#   conda activate llm-align
+#   which python
+#   which torchrun
+#   echo $CONDA_PREFIX
+#   echo $PATH
+#   python -m orchestrator.cli --config configs/github_repo/orchestrator_config.safe_refusal_qwen3b_gpu_smoke.yaml
+
+orchestrator:
+  run_name: safe-refusal-qwen3b-gpu-smoke
+  stop_on_error: true
+
+  execute:
+    alignment: true
+    inference: true
+    evaluation: true
+
+  output:
+    root_dir: ../../runs/orchestrator
+    overwrite: true
+    save_pipeline_state: true
+    save_generated_stage_configs: true
+
+  naming:
+    branch_id_template: "{candidate_id}/{benchmark_id}"
+    include_timestamp: true
+
+
+defaults:
+  runtime:
+    target: single_gpu
+    device: cuda
+    cpu_threads: 8
+    mixed_precision: bf16
+    cuda_visible_devices: []
+
+  alignment:
+    backend: llama_factory
+
+    runtime:
+      command_mode: module
+      python_executable: null
+      force_torchrun: false
+      nproc_per_node: 1
+      extra_env:
+        DISABLE_VERSION_CHECK: "1"
+      heartbeat_interval_seconds: 30
+
+    tuning:
+      finetuning_type: lora
+      lora_rank: 8
+      lora_alpha: 16
+      lora_dropout: 0.05
+      lora_target: all
+      quantization_bit: null
+
+    training:
+      cutoff_len: 256
+      per_device_train_batch_size: 1
+      gradient_accumulation_steps: 4
+      learning_rate: 5.0e-5
+      num_train_epochs: 1.0
+      lr_scheduler_type: cosine
+      warmup_ratio: 0.03
+      logging_steps: 1
+      save_steps: 10
+      save_total_limit: 1
+      dataloader_num_workers: 0
+      preprocessing_num_workers: 1
+
+    output:
+      save_adapter_checkpoint: true
+      export_merged_model: true
+      export_device: cpu
+      overwrite_output_dir: true
+      save_only_model: false
+      report_to: none
+
+  inference:
+    mode: offline
+
+    model:
+      backend: transformers_local
+      device: cuda
+      torch_dtype: bfloat16
+
+    generation:
+      max_new_tokens: 8
+      temperature: 0.0
+      top_p: 1.0
+      do_sample: false
+      repetition_penalty: 1.0
+      stop_strings: []
+      add_generation_prompt: true
+
+    execution:
+      batch_size: 1
+      max_concurrency: 1
+
+  evaluation:
+    mode: offline
+
+    execution:
+      batch_size: 1
+      max_concurrency: 1
+
+
+catalog:
+  models:
+    qwen25_3b_base:
+      model_name_or_path: Qwen/Qwen2.5-3B-Instruct
+      tokenizer_name_or_path: null
+      revision: main
+      trust_remote_code: false
+      template: qwen
+
+  datasets:
+    pku_safe_refusal_sft_train:
+      stage: alignment
+      path: ../data/pku_safe_refusal_sft_train.jsonl
+      format: jsonl
+      schema: prompt_response
+      fields:
+        prompt: prompt
+        response: response
+        system: null
+      max_samples: 8
+
+    pku_safe_refusal_dpo_train:
+      stage: alignment
+      path: ../data/pku_safe_refusal_dpo_train.jsonl
+      format: jsonl
+      schema: prompt_chosen_rejected
+      fields:
+        prompt: prompt
+        chosen: chosen
+        rejected: rejected
+        system: null
+      max_samples: 8
+
+    pku_safe_refusal_kto_train:
+      stage: alignment
+      path: ../data/pku_safe_refusal_kto_train.jsonl
+      format: jsonl
+      schema: prompt_response_label
+      fields:
+        prompt: prompt
+        response: response
+        label: label
+        system: null
+      max_samples: 8
+
+    do_not_answer_refusal_eval:
+      stage: inference_eval
+      path: ../benchmark_data/do_not_answer_refusal_eval.jsonl
+      format: jsonl
+      fields:
+        id: id
+        input: input
+        expected_output: expected_output
+        context: null
+        retrieval_context: null
+        metadata: metadata
+      max_samples: 8
+
+  training_profiles:
+    pku_safe_refusal_sft:
+      training:
+        learning_rate: 5.0e-5
+        num_train_epochs: 1.0
+
+    pku_safe_refusal_dpo:
+      training:
+        learning_rate: 1.0e-5
+        num_train_epochs: 1.0
+
+    pku_safe_refusal_kto:
+      training:
+        learning_rate: 1.0e-5
+        num_train_epochs: 1.0
+
+  metric_sets:
+    exact_only:
+      metrics:
+        - name: exact_match
+          include_reason: true
+          strict_mode: false
+          verbose_mode: false
+
+
+alignment:
+  candidates:
+    - candidate_id: qwen25_3b_base
+      kind: base
+      model_ref: qwen25_3b_base
+
+    - candidate_id: qwen25_3b_sft_safe_refusal
+      kind: aligned
+      base_model_ref: qwen25_3b_base
+      method: sft
+      dataset_ref: pku_safe_refusal_sft_train
+      profile_ref: pku_safe_refusal_sft
+
+    - candidate_id: qwen25_3b_dpo_safe_refusal
+      kind: aligned
+      base_model_ref: qwen25_3b_base
+      method: dpo
+      dataset_ref: pku_safe_refusal_dpo_train
+      profile_ref: pku_safe_refusal_dpo
+      method_config:
+        dpo:
+          pref_beta: 0.1
+          pref_loss: sigmoid
+
+    - candidate_id: qwen25_3b_kto_safe_refusal
+      kind: aligned
+      base_model_ref: qwen25_3b_base
+      method: kto
+      dataset_ref: pku_safe_refusal_kto_train
+      profile_ref: pku_safe_refusal_kto
+      method_config:
+        kto:
+          pref_beta: 0.1
+          kto_chosen_weight: 1.0
+          kto_rejected_weight: 1.0
+
+
+inference:
+  benchmarks:
+    - benchmark_id: harmful_refusal_action_main
+      dataset_ref: do_not_answer_refusal_eval
+      candidate_refs:
+        - qwen25_3b_base
+        - qwen25_3b_sft_safe_refusal
+        - qwen25_3b_dpo_safe_refusal
+        - qwen25_3b_kto_safe_refusal
+      generation:
+        max_new_tokens: 8
+        temperature: 0.0
+        top_p: 1.0
+        do_sample: false
+        repetition_penalty: 1.0
+      execution: {}
+
+
+evaluation:
+  benchmarks:
+    - benchmark_id: harmful_refusal_action_eval
+      dataset_ref: do_not_answer_refusal_eval
+      metric_set_ref: exact_only
+      source_inference_benchmark: harmful_refusal_action_main
+      candidate_ref                           s:
+        - qwen25_3b_base
+        - qwen25_3b_sft_safe_refusal
+        - qwen25_3b_dpo_safe_refusal
+        - qwen25_3b_kto_safe_refusal
+      judge_model_ref: null
+      judge_model: {}
+      execution: {}
