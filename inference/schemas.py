@@ -22,6 +22,7 @@ class InferenceDatasetConfig:
 class InferenceModelConfig:
     backend: str
     model_name_or_path: str
+    adapter_name_or_path: str | None = None
     tokenizer_name_or_path: str | None = None
     revision: str | None = None
     trust_remote_code: bool = False
@@ -38,6 +39,7 @@ class GenerationConfig:
     repetition_penalty: float = 1.2  # Penalizes repeated tokens to avoid degenerate repetitive output. 1.0 = no penalty, >1.0 = penalty strength.
     stop_strings: list[str] = field(default_factory=list)
     add_generation_prompt: bool = True
+    enable_thinking: bool | None = None
 
 
 @dataclass(slots=True)

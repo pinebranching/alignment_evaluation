@@ -415,18 +415,23 @@ def resolve_inference_model_payload(
 
     base_model_ref = str(candidate.get("base_model_ref", "")).strip()
     model_entry = require_mapping(model_index.get(base_model_ref), f"catalog.models.{base_model_ref}")
-    resolved_model_name = output_model_path or (
-        alignment_result["primary_artifact_path"] if alignment_result is not None else None
+    exported_model_path = (
+        alignment_result.get("artifacts", {}).get("exported_model_path")
+        if alignment_result is not None else None
     )
-    if resolved_model_name is None:
-        resolved_model_name = model_entry.get("model_name_or_path")
+    adapter_path = (
+        alignment_result.get("artifacts", {}).get("adapter_path")
+        if alignment_result is not None and not exported_model_path and not output_model_path else None
+    )
+    resolved_model_name = output_model_path or exported_model_path or model_entry.get("model_name_or_path")
     resolved_tokenizer_name = resolved_model_name
-    if resolved_tokenizer_name is None:
+    if adapter_path:
         resolved_tokenizer_name = (
             model_entry.get("tokenizer_name_or_path") or model_entry.get("model_name_or_path")
         )
     base_payload = {
         "model_name_or_path": resolved_model_name,
+        "adapter_name_or_path": adapter_path,
         "tokenizer_name_or_path": resolved_tokenizer_name,
         "revision": model_entry.get("revision"),
         "trust_remote_code": model_entry.get("trust_remote_code", False),

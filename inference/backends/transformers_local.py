@@ -14,6 +14,7 @@ class TransformersLocalBackend:
     def __init__(self, model_config: InferenceModelConfig, generation_config: GenerationConfig):
         self._runtime = load_causal_lm(
             model_name_or_path=model_config.model_name_or_path,
+            adapter_name_or_path=model_config.adapter_name_or_path,
             tokenizer_name_or_path=model_config.tokenizer_name_or_path,
             revision=model_config.revision,
             trust_remote_code=model_config.trust_remote_code,
@@ -29,6 +30,7 @@ class TransformersLocalBackend:
             self.tokenizer,
             prompt,
             add_generation_prompt=self._generation.add_generation_prompt,
+            enable_thinking=self._generation.enable_thinking,
         )
         inputs = self.tokenizer(rendered_prompt, return_tensors="pt")
         inputs = {key: value.to(self.model.device) for key, value in inputs.items()}

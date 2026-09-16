@@ -216,23 +216,24 @@ def validate_master_config(config: MasterConfig) -> None:
             require_mapping(defaults_raw["alignment"].get("output"), "defaults.alignment.output"),
             optional_mapping(candidate.get("output"), f"alignment.candidates[{candidate_id}].output"),
         )
+        resolved_tuning = merge_mappings(
+            require_mapping(defaults_raw["alignment"].get("tuning"), "defaults.alignment.tuning"),
+            optional_mapping(candidate.get("tuning"), f"alignment.candidates[{candidate_id}].tuning"),
+        )
         if (
             config.execute_inference
             and method != "rm"
             and not bool(resolved_output.get("export_merged_model", False))
+            and str(resolved_tuning.get("finetuning_type", "")).strip().lower() != "lora"
         ):
             raise ValueError(
-                f"Aligned candidate '{candidate_id}' must enable export_merged_model when inference is executed."
+                f"Aligned candidate '{candidate_id}' must use LoRA or enable export_merged_model when inference is executed."
             )
         if method == "rm" and bool(resolved_output.get("export_merged_model", False)):
             raise ValueError(
                 f"Reward model candidate '{candidate_id}' must set output.export_merged_model=false."
             )
 
-        resolved_tuning = merge_mappings(
-            require_mapping(defaults_raw["alignment"].get("tuning"), "defaults.alignment.tuning"),
-            optional_mapping(candidate.get("tuning"), f"alignment.candidates[{candidate_id}].tuning"),
-        )
         if not str(resolved_tuning.get("finetuning_type", "")).strip():
             raise ValueError(
                 f"Aligned candidate '{candidate_id}' resolved tuning.finetuning_type must not be empty."

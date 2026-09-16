@@ -1,0 +1,249 @@
+# Qwen3-8B base and SFT adapter run; no merged model exports.
+# Copy to configs/github_repo/ before running. Qwen3 thinking is disabled for short-answer benchmarks.
+orchestrator:
+  run_name: qwen3-8b-adapter-sft-safe-refusal
+  stop_on_error: true
+  execute:
+    alignment: true
+    inference: true
+    evaluation: true
+  output:
+    root_dir: ../../runs
+    overwrite: true
+    save_pipeline_state: true
+    save_generated_stage_configs: true
+  naming:
+    branch_id_template: '{candidate_id}/{benchmark_id}'
+    include_timestamp: true
+defaults:
+  runtime:
+    target: single_gpu
+    device: cuda
+    cpu_threads: 8
+    mixed_precision: bf16
+    cuda_visible_devices: []
+  alignment:
+    backend: llama_factory
+    runtime:
+      command_mode: module
+      python_executable: null
+      force_torchrun: false
+      nproc_per_node: 1
+      extra_env:
+        DISABLE_VERSION_CHECK: '1'
+      heartbeat_interval_seconds: 3000000
+    tuning:
+      finetuning_type: lora
+      lora_rank: 8
+      lora_alpha: 16
+      lora_dropout: 0.05
+      lora_target: all
+      quantization_bit: null
+    training:
+      cutoff_len: 128
+      per_device_train_batch_size: 1
+      gradient_accumulation_steps: 4
+      learning_rate: 5.0e-05
+      num_train_epochs: 2.0
+      lr_scheduler_type: cosine
+      warmup_ratio: 0.03
+      logging_steps: 10
+      save_steps: 100
+      save_total_limit: 1
+      dataloader_num_workers: 0
+      preprocessing_num_workers: 1
+    output:
+      save_adapter_checkpoint: true
+      export_merged_model: false
+      export_device: cpu
+      overwrite_output_dir: true
+      save_only_model: false
+      report_to: none
+  inference:
+    mode: offline
+    model:
+      backend: transformers_local
+      device: cuda
+      torch_dtype: bfloat16
+    generation:
+      max_new_tokens: 256
+      temperature: 0.0
+      top_p: 1.0
+      do_sample: false
+      repetition_penalty: 1.0
+      stop_strings: []
+      add_generation_prompt: true
+      enable_thinking: false
+    execution:
+      batch_size: 1
+      max_concurrency: 1
+  evaluation:
+    mode: offline
+    execution:
+      batch_size: 1
+      max_concurrency: 1
+catalog:
+  models:
+    qwen3_8b_base:
+      model_name_or_path: Qwen/Qwen3-8B
+      tokenizer_name_or_path: null
+      revision: main
+      trust_remote_code: false
+      template: qwen3_nothink
+  datasets:
+    pku_safe_refusal_sft_train:
+      stage: alignment
+      path: ../data/pku_safe_refusal_sft_train.jsonl
+      format: jsonl
+      schema: prompt_response
+      fields:
+        prompt: prompt
+        response: response
+        system: null
+      max_samples: 2000
+    do_not_answer_refusal_eval:
+      stage: inference_eval
+      path: ../benchmark_data/do_not_answer_refusal_eval.jsonl
+      format: jsonl
+      fields:
+        id: id
+        input: input
+        expected_output: expected_output
+        context: null
+        retrieval_context: null
+        metadata: metadata
+      max_samples: 300
+    pku_safe_benign_action_eval:
+      stage: inference_eval
+      path: ../benchmark_data/pku_safe_benign_action_eval.jsonl
+      format: jsonl
+      fields:
+        id: id
+        input: input
+        expected_output: expected_output
+        context: null
+        retrieval_context: null
+        metadata: metadata
+      max_samples: 300
+    helpsteer2_benign_open_eval:
+      stage: inference_eval
+      path: ../benchmark_data/helpsteer2_benign_open_eval.jsonl
+      format: jsonl
+      fields:
+        id: id
+        input: input
+        expected_output: expected_output
+        context: null
+        retrieval_context: null
+        metadata: metadata
+      max_samples: 300
+  judge_models:
+    qwen25_05b_judge:
+      backend: transformers_local
+      model: Qwen/Qwen2.5-0.5B-Instruct
+      device: cuda
+      torch_dtype: bfloat16
+      temperature: 0
+      generation_kwargs:
+        max_new_tokens: 384
+  training_profiles:
+    pku_safe_refusal_sft:
+      training:
+        learning_rate: 5.0e-05
+        num_train_epochs: 2.0
+  metric_sets:
+    exact_only:
+      metrics:
+      - name: exact_match
+        include_reason: true
+        strict_mode: false
+        verbose_mode: false
+    benign_relevancy_qwen_judge:
+      judge_model_ref: qwen25_05b_judge
+      metrics:
+      - name: answer_relevancy
+        threshold: 0.5
+        include_reason: true
+        strict_mode: false
+        verbose_mode: false
+alignment:
+  candidates:
+  - candidate_id: qwen3_8b_base
+    kind: base
+    model_ref: qwen3_8b_base
+  - candidate_id: qwen3_8b_sft_safe_refusal
+    kind: aligned
+    base_model_ref: qwen3_8b_base
+    method: sft
+    dataset_ref: pku_safe_refusal_sft_train
+    profile_ref: pku_safe_refusal_sft
+inference:
+  benchmarks:
+  - benchmark_id: harmful_refusal_action_main
+    dataset_ref: do_not_answer_refusal_eval
+    candidate_refs:
+    - qwen3_8b_base
+    - qwen3_8b_sft_safe_refusal
+    generation:
+      max_new_tokens: 8
+      temperature: 0.0
+      top_p: 1.0
+      do_sample: false
+      repetition_penalty: 1.0
+    execution: {}
+  - benchmark_id: benign_action_main
+    dataset_ref: pku_safe_benign_action_eval
+    candidate_refs:
+    - qwen3_8b_base
+    - qwen3_8b_sft_safe_refusal
+    generation:
+      max_new_tokens: 8
+      temperature: 0.0
+      top_p: 1.0
+      do_sample: false
+      repetition_penalty: 1.0
+    execution: {}
+  - benchmark_id: benign_helpfulness_main
+    dataset_ref: helpsteer2_benign_open_eval
+    candidate_refs:
+    - qwen3_8b_base
+    - qwen3_8b_sft_safe_refusal
+    generation:
+      max_new_tokens: 256
+      temperature: 0.0
+      top_p: 1.0
+      do_sample: false
+      repetition_penalty: 1.0
+    execution: {}
+evaluation:
+  benchmarks:
+  - benchmark_id: harmful_refusal_action_eval
+    dataset_ref: do_not_answer_refusal_eval
+    metric_set_ref: exact_only
+    source_inference_benchmark: harmful_refusal_action_main
+    candidate_refs:
+    - qwen3_8b_base
+    - qwen3_8b_sft_safe_refusal
+    judge_model_ref: null
+    judge_model: {}
+    execution: {}
+  - benchmark_id: benign_action_eval
+    dataset_ref: pku_safe_benign_action_eval
+    metric_set_ref: exact_only
+    source_inference_benchmark: benign_action_main
+    candidate_refs:
+    - qwen3_8b_base
+    - qwen3_8b_sft_safe_refusal
+    judge_model_ref: null
+    judge_model: {}
+    execution: {}
+  - benchmark_id: benign_helpfulness_eval
+    dataset_ref: helpsteer2_benign_open_eval
+    metric_set_ref: benign_relevancy_qwen_judge
+    source_inference_benchmark: benign_helpfulness_main
+    candidate_refs:
+    - qwen3_8b_base
+    - qwen3_8b_sft_safe_refusal
+    judge_model_ref: null
+    judge_model: {}
+    execution: {}

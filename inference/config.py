@@ -54,6 +54,9 @@ def load_inference_config(config_path: str | Path) -> InferenceConfig:
         model=InferenceModelConfig(
             backend=str(model_raw.get("backend", "transformers_local")),
             model_name_or_path=str(model_raw.get("model_name_or_path", "")),
+            adapter_name_or_path=str(v)
+            if (v := model_raw.get("adapter_name_or_path")) is not None
+            else None,
             tokenizer_name_or_path=str(v)
             if (v := model_raw.get("tokenizer_name_or_path")) is not None
             else None,
@@ -70,6 +73,9 @@ def load_inference_config(config_path: str | Path) -> InferenceConfig:
             repetition_penalty=float(generation_raw.get("repetition_penalty", 1.0)),
             stop_strings=_as_string_list(generation_raw.get("stop_strings", [])),
             add_generation_prompt=bool(generation_raw.get("add_generation_prompt", True)),
+            enable_thinking=bool(v)
+            if (v := generation_raw.get("enable_thinking")) is not None
+            else None,
         ),
         execution=InferenceExecutionConfig(
             batch_size=int(execution_raw.get("batch_size", 1)),

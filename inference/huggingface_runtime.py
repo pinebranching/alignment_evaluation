@@ -20,6 +20,7 @@ class LoadedCausalLM:
 def load_causal_lm(
     *,
     model_name_or_path: str,
+    adapter_name_or_path: str | None = None,
     tokenizer_name_or_path: str | None = None,
     revision: str | None = None,
     trust_remote_code: bool = False,
@@ -68,6 +69,10 @@ def load_causal_lm(
     )
     if device.strip().lower() not in {"", "auto"}:
         model.to(device)
+    if adapter_name_or_path:
+        from peft import PeftModel
+
+        model = PeftModel.from_pretrained(model, adapter_name_or_path).eval()
 
     if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -119,12 +124,19 @@ def render_prompt(
     prompt: str,
     *,
     add_generation_prompt: bool = True,
+    enable_thinking: bool | None = None,
 ) -> str:
     if tokenizer_has_chat_template(tokenizer):
+        template_kwargs = (
+            {"enable_thinking": enable_thinking}
+            if enable_thinking is not None
+            else {}
+        )
         return tokenizer.apply_chat_template(
             build_chat_messages(prompt),
             tokenize=False,
             add_generation_prompt=add_generation_prompt,
+            **template_kwargs,
         )
     return prompt
 
