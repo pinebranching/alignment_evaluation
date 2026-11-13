@@ -11,7 +11,9 @@ DEFAULT_SAVE_DIR = Path("configs/benchmark_data")
 DATASET_REPO_TYPE = "dataset"
 SNAPSHOT_DOC_EXTENSIONS = {".md", ".pdf", ".rst", ".txt"}
 SNAPSHOT_DOC_NAME_MARKERS = ("datasheet", "data_card", "datacard", "documentation", "readme")
-DEFAULT_VERIFICATION_MODE = "all_checks"
+# Hugging Face's basic checks validate split metadata without relying on
+# dataset-card download URL keys, which can differ from the actual Hub URLs.
+DEFAULT_VERIFICATION_MODE = "basic_checks"
 LOCAL_DATASET_LOADERS = {
     ".csv": "csv",
     ".json": "json",

@@ -12,3 +12,10 @@ __pycache__/
 
 # Generated data and experiment outputs
 runs/
+LLaMA-Factory/
+configs/data/
+configs/benchmark_data/
+configs/github_repo/
+
+# Personal cluster instructions
+README_SCC.local.md
